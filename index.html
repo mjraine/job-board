@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Job board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --fg:#1b2130; --muted:#5d667a; --line:#dde1ea;
+  --accent:#2456c9; --run:#1c7a4a; --run-bg:#e3f3ea; --wait:#a35a00; --wait-bg:#fbeeda; --idle-bg:#eceef3;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root{
+  --bg:#12151c; --panel:#1b1f29; --fg:#e8ebf2; --muted:#9aa3b5; --line:#2c3240;
+  --accent:#8fb0ff; --run:#6fd39c; --run-bg:#173526; --wait:#f0b862; --wait-bg:#3a2a10; --idle-bg:#262b37; color-scheme:dark } }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.5;
+  padding:20px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px))}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--display);font-size:1.6rem;margin:0;font-weight:600}
+.stamp{color:var(--muted);font-size:.9rem;margin:2px 0 0;display:flex;align-items:center;gap:8px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--run)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.proj{font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0}
+h2{font-family:var(--display);font-size:1.15rem;margin:0;font-weight:600;text-wrap:balance}
+h2::first-letter{text-transform:uppercase}
+.pill{font-size:.82rem;font-weight:600;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.run{background:var(--run-bg);color:var(--run)} .wait{background:var(--wait-bg);color:var(--wait)} .idle{background:var(--idle-bg);color:var(--muted)}
+.big{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px}
+.pct{font-family:var(--display);font-weight:600;font-size:3.4rem;line-height:1;font-variant-numeric:tabular-nums}
+.pct small{font-size:1.4rem;color:var(--muted);font-weight:500;margin-left:2px}
+.count{font-size:1.15rem;font-weight:600;font-variant-numeric:tabular-nums}
+.count span{color:var(--muted);font-weight:400}
+.bar{height:10px;background:var(--idle-bg);border-radius:5px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--run);border-radius:5px;min-width:3px;transition:width 1s linear}
+.bar.off i{background:var(--muted)}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;margin:0}
+.facts div{min-width:0}
+.facts dt{font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.facts dd{margin:0;font-variant-numeric:tabular-nums}
+.note{color:var(--muted);font-size:.9rem;margin:0}
+p{margin:0}
+form{display:flex;flex-wrap:wrap;gap:8px}
+input{flex:1 1 220px;font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);min-width:0}
+button{font:inherit;font-weight:600;padding:9px 16px;border:0;border-radius:8px;background:var(--accent);color:var(--bg);cursor:pointer}
+.foot{color:var(--muted);font-size:.9rem;display:flex;flex-direction:column;gap:6px}
+.link{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-weight:500;cursor:pointer;text-align:left}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Job board</h1>
+    <p class="stamp"><span class="dot" id="dot"></span><span id="stamp">Not connected</span></p>
+  </header>
+  <div id="setup" hidden>
+    <section>
+      <h2>Channel name</h2>
+      <p>This page shows nothing by itself. Type the private channel name once; it is kept on this device only.</p>
+      <form id="form"><input id="topic" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="board-..." aria-label="Channel name"><button>Show the jobs</button></form>
+    </section>
+  </div>
+  <div id="jobs" class="wrap"></div>
+  <div class="foot" id="foot" hidden>
+    <p>Each job reports about every 10 minutes; between reports the large figure moves at the job's measured pace. A job stays here for 12 hours after its last report. Times are this device's.</p>
+    <p><button class="link" id="forget">Forget the channel name on this device</button></p>
+  </div>
+</div>
+<script>
+"use strict";
+var KEY = "job-board-channel", SERVER = "https://ntfy.sh/";
+var jobs = {}, topic = null, source = null, live = false, lastLoad = 0;
+var showTest = /test/.test(location.search);
+var $ = function (id) { return document.getElementById(id); };
+
+function saved() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+function save(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch (e) {} }
+function clean(v) { v = (v || "").trim().replace(/^#/, ""); return /^[A-Za-z0-9_-]{6,64}$/.test(v) ? v : null; }
+
+function take(text) {
+  var rec;
+  try { rec = JSON.parse(text); } catch (e) { return; }
+  if (!rec || rec.v !== 1 || !rec.job || !rec.total) return;
+  if (rec.project === "Test" && !showTest) return;
+  var old = jobs[rec.job];
+  if (!old || rec.t >= old.t) jobs[rec.job] = rec;
+}
+
+function load() {
+  lastLoad = Date.now();
+  return fetch(SERVER + topic + "/json?poll=1&since=12h").then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.text();
+  }).then(function (body) {
+    body.split("\n").forEach(function (line) {
+      if (!line.trim()) return;
+      try { var m = JSON.parse(line); if (m.event === "message") take(m.message); } catch (e) {}
+    });
+    draw();
+  });
+}
+
+function listen() {
+  if (source) source.close();
+  source = new EventSource(SERVER + topic + "/sse");
+  source.onopen = function () { live = true; stamp(); };
+  source.onerror = function () { live = false; stamp(); };
+  source.onmessage = function (e) {
+    try { var m = JSON.parse(e.data); if (m.event === "message") { take(m.message); draw(); } } catch (err) {}
+  };
+}
+
+function num(n) { return Math.round(n).toLocaleString("en-US"); }
+function span(s) {
+  if (s < 90) return "a minute";
+  if (s < 5400) return Math.round(s / 60) + " minutes";
+  if (s < 36 * 3600) { var h = Math.round(s / 360) / 10; return (h % 1 ? h.toFixed(1) : h) + " hours"; }
+  return (s / 86400).toFixed(1) + " days";
+}
+function clock(ms) {
+  var d = new Date(ms), now = new Date();
+  var t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return t + " today";
+  return t + " on " + d.toLocaleDateString([], { weekday: "long" });
+}
+function pace(r, unit) {
+  if (!r) return "not measured yet";
+  if (r >= 1) return num(r) + " " + unit + " a second";
+  if (r * 60 >= 1) return (r * 60 >= 10 ? num(r * 60) : (r * 60).toFixed(1)) + " " + unit + " a minute";
+  return (r * 3600).toFixed(1) + " " + unit + " an hour";
+}
+
+/* Where the job is now: its last report, moved on at its pace for no longer than one reporting interval. */
+function now_of(j) {
+  if (j.state !== "running" || !j.rate) return j.done;
+  var since = Math.min(Date.now() / 1000 - j.t, (j.next || 600) + 60);
+  return Math.min(j.total, j.done + j.rate * Math.max(0, since));
+}
+function quiet(j) { return j.state === "running" && Date.now() / 1000 - j.t > 2 * (j.next || 600) + 180; }
+
+function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function fact(label, value) { var d = el("div"); d.appendChild(el("dt", null, label)); d.appendChild(el("dd", null, value)); return d; }
+
+function card(j) {
+  var s = el("section"), est = now_of(j), ago = Date.now() / 1000 - j.t, q = quiet(j);
+  var head = el("div", "head"), names = el("div");
+  names.appendChild(el("p", "proj", j.project));
+  names.appendChild(el("h2", null, j.what));
+  head.appendChild(names);
+  var pill = j.state === "finished" ? ["idle", "Finished"] : j.state === "stopped" ? ["wait", "Stopped"] :
+    j.state === "paused" ? ["wait", "Paused, restarts by itself"] : q ? ["wait", "No report for " + span(ago)] : ["run", "Running"];
+  head.appendChild(el("span", "pill " + pill[0], pill[1]));
+  s.appendChild(head);
+
+  var pct = est / j.total * 100, big = el("div", "big"), p = el("div", "pct", pct >= 100 ? "100" : pct.toFixed(1));
+  p.appendChild(el("small", null, "%"));
+  big.appendChild(p);
+  var c = el("div", "count", num(est) + " ");
+  c.appendChild(el("span", null, "of " + num(j.total) + " " + j.unit));
+  big.appendChild(c);
+  s.appendChild(big);
+  var bar = el("div", "bar" + (j.state === "running" && !q ? "" : " off")), i = el("i");
+  i.style.width = Math.min(100, pct) + "%";
+  bar.appendChild(i);
+  s.appendChild(bar);
+
+  var f = el("dl", "facts");
+  if (j.state === "running") {
+    var left = j.rate ? (j.total - est) / j.rate : null;
+    f.appendChild(fact("Left", left == null ? "not known yet" : "about " + span(left)));
+    f.appendChild(fact("Done by", left == null ? "not known yet" : "about " + clock(Date.now() + left * 1000)));
+    f.appendChild(fact("Pace", pace(j.rate, j.unit)));
+  } else {
+    f.appendChild(fact(j.state === "finished" ? "Finished" : "Stopped", clock(j.t * 1000)));
+    f.appendChild(fact("Ran for", span(j.t - j.t0)));
+  }
+  f.appendChild(fact("Last report", ago < 90 ? "just now" : span(ago) + " ago"));
+  s.appendChild(f);
+  if (j.note) s.appendChild(el("p", "note", j.note));
+  return s;
+}
+
+function draw() {
+  var box = $("jobs"), list = Object.keys(jobs).map(function (k) { return jobs[k]; });
+  list.sort(function (a, b) { return (b.state === "running") - (a.state === "running") || b.t - a.t; });
+  box.textContent = "";
+  if (!list.length) {
+    var s = el("section");
+    s.appendChild(el("p", null, "No job has reported in the last 12 hours."));
+    box.appendChild(s);
+  }
+  list.forEach(function (j) { box.appendChild(card(j)); });
+  stamp();
+}
+function stamp() {
+  $("dot").className = "dot" + (live ? " on" : "");
+  var n = Object.keys(jobs).filter(function (k) { return jobs[k].state === "running"; }).length;
+  $("stamp").textContent = (live ? "Live" : "Reconnecting") + ": " + (n === 1 ? "1 job running" : n + " jobs running");
+}
+
+function begin(t) {
+  topic = t;
+  $("setup").hidden = true; $("foot").hidden = false;
+  load().catch(function () { draw(); });
+  listen();
+}
+
+var fromLink = clean(location.hash);
+if (fromLink) { save(fromLink); history.replaceState(null, "", location.pathname + location.search); }
+var t = fromLink || clean(saved());
+if (t) begin(t); else $("setup").hidden = false;
+
+$("form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var v = clean($("topic").value);
+  if (v) { save(v); begin(v); } else { $("topic").focus(); }
+});
+$("forget").addEventListener("click", function () {
+  save(null); if (source) source.close();
+  topic = null; jobs = {}; live = false;
+  $("jobs").textContent = ""; $("foot").hidden = true; $("setup").hidden = false; $("stamp").textContent = "Not connected"; $("dot").className = "dot";
+});
+setInterval(function () { if (topic) draw(); }, 1000);
+/* A phone that was asleep may have missed reports: read the last ones again when the page is shown. */
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && topic && Date.now() - lastLoad > 60000) { load().catch(function () {}); listen(); }
+});
+</script>
+</body>
+</html>
