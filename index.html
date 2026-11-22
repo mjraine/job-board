@@ -84,7 +84,7 @@ function clean(v) { v = (v || "").trim().replace(/^#/, ""); return /^[A-Za-z0-9_
 function take(text) {
   var rec;
   try { rec = JSON.parse(text); } catch (e) { return; }
-  if (!rec || rec.v !== 1 || !rec.job || !rec.total) return;
+  if (!rec || rec.v !== 2 || !rec.job || !rec.total) return;
   if (rec.project === "Test" && !showTest) return;
   var old = jobs[rec.job];
   if (!old || rec.t >= old.t) jobs[rec.job] = rec;
@@ -180,7 +180,6 @@ function card(j) {
   }
   f.appendChild(fact("Last report", ago < 90 ? "just now" : span(ago) + " ago"));
   s.appendChild(f);
-  if (j.note) s.appendChild(el("p", "note", j.note));
   return s;
 }
 
