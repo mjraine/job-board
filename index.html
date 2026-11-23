@@ -87,8 +87,11 @@ function take(text) {
   if (!rec || rec.v !== 2 || !rec.job || !rec.total) return;
   if (rec.project === "Test" && !showTest) return;
   var old = jobs[rec.job];
-  if (!old || rec.t >= old.t) jobs[rec.job] = rec;
+  if (old && rec.t < old.t) return;
+  jobs[rec.job] = rec;
 }
+/* A record with state "gone" withdraws a card (a job posted under a wrong label): it is kept in jobs so that
+   older records of the same job cannot bring the card back, and is left out when the list is drawn. */
 
 function load() {
   lastLoad = Date.now();
@@ -184,7 +187,8 @@ function card(j) {
 }
 
 function draw() {
-  var box = $("jobs"), list = Object.keys(jobs).map(function (k) { return jobs[k]; });
+  var box = $("jobs"), list = Object.keys(jobs).map(function (k) { return jobs[k]; })
+    .filter(function (j) { return j.state !== "gone"; });
   list.sort(function (a, b) { return (b.state === "running") - (a.state === "running") || b.t - a.t; });
   box.textContent = "";
   if (!list.length) {
