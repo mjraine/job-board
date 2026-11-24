@@ -73,7 +73,7 @@ button{font:inherit;font-weight:600;padding:9px 16px;border:0;border-radius:8px;
 <script>
 "use strict";
 var KEY = "job-board-channel", SERVER = "https://ntfy.sh/";
-var jobs = {}, topic = null, source = null, live = false, lastLoad = 0;
+var jobs = {}, topic = null, source = null, live = false, lastLoad = 0, failed = null, again = null;
 var showTest = /test/.test(location.search);
 var $ = function (id) { return document.getElementById(id); };
 
@@ -96,13 +96,20 @@ function take(text) {
 function load() {
   lastLoad = Date.now();
   return fetch(SERVER + topic + "/json?poll=1&since=12h").then(function (r) {
-    if (!r.ok) throw new Error(r.status);
+    if (!r.ok) throw new Error(r.status === 429 ? "the service says this connection has asked too often" : "the service answered " + r.status);
     return r.text();
   }).then(function (body) {
+    failed = null;
     body.split("\n").forEach(function (line) {
       if (!line.trim()) return;
       try { var m = JSON.parse(line); if (m.event === "message") take(m.message); } catch (e) {}
     });
+    draw();
+  }).catch(function (e) {
+    /* Not the same thing as "no job": say that the reports could not be read, and try again in a minute. */
+    failed = e && e.message && /^the service/.test(e.message) ? e.message : "no connection to the service";
+    clearTimeout(again);
+    again = setTimeout(function () { if (topic) load(); }, 60000);
     draw();
   });
 }
@@ -193,8 +200,13 @@ function draw() {
   box.textContent = "";
   if (!list.length) {
     var s = el("section");
-    s.appendChild(el("p", null, "No job has reported in the last 12 hours."));
+    s.appendChild(el("p", null, failed ? "The reports could not be read (" + failed + "). Trying again every minute." : "No job has reported in the last 12 hours."));
     box.appendChild(s);
+  }
+  else if (failed) {
+    var w = el("section");
+    w.appendChild(el("p", "note", "The latest reports could not be read (" + failed + "); these figures may be old. Trying again every minute."));
+    box.appendChild(w);
   }
   list.forEach(function (j) { box.appendChild(card(j)); });
   stamp();
@@ -208,7 +220,7 @@ function stamp() {
 function begin(t) {
   topic = t;
   $("setup").hidden = true; $("foot").hidden = false;
-  load().catch(function () { draw(); });
+  load();
   listen();
 }
 
@@ -224,13 +236,13 @@ $("form").addEventListener("submit", function (e) {
 });
 $("forget").addEventListener("click", function () {
   save(null); if (source) source.close();
-  topic = null; jobs = {}; live = false;
+  topic = null; jobs = {}; live = false; failed = null; clearTimeout(again);
   $("jobs").textContent = ""; $("foot").hidden = true; $("setup").hidden = false; $("stamp").textContent = "Not connected"; $("dot").className = "dot";
 });
 setInterval(function () { if (topic) draw(); }, 1000);
 /* A phone that was asleep may have missed reports: read the last ones again when the page is shown. */
 document.addEventListener("visibilitychange", function () {
-  if (!document.hidden && topic && Date.now() - lastLoad > 60000) { load().catch(function () {}); listen(); }
+  if (!document.hidden && topic && Date.now() - lastLoad > 60000) { load(); listen(); }
 });
 </script>
 </body>
